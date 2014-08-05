@@ -25,6 +25,5 @@ Let's say if you run the benchmark on a cluster of 3 servers.
  - number of servers = 3
  - 3 servers with normal hard disks(not SSD).
  - number of transactions = 100000
- 
 - Throughput
  - 25000 transactions/s
