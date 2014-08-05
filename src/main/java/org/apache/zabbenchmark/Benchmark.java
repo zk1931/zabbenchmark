@@ -11,7 +11,6 @@ import java.nio.ByteBuffer;
 import java.util.Properties;
 import org.apache.zab.QuorumZab;
 import org.apache.zab.StateMachine;
-import org.apache.zab.Zab;
 import org.apache.zab.Zxid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,7 +40,12 @@ public class Benchmark implements StateMachine {
 
   CountDownLatch condMembers = new CountDownLatch(1);
 
-  Zab.State currentState = null;
+  State currentState = null;
+
+  enum State {
+    LEADING,
+    FOLLOWING
+  }
 
   public Benchmark() {
     LOG.debug("Benchmark.");
@@ -49,11 +53,9 @@ public class Benchmark implements StateMachine {
       String selfId = System.getProperty("serverId");
       String logDir = System.getProperty("logdir");
       String joinPeer = System.getProperty("join");
-
       if (selfId != null && joinPeer == null) {
         joinPeer = selfId;
       }
-
       Properties prop = new Properties();
       if (selfId != null) {
         prop.setProperty("serverId", selfId);
@@ -65,6 +67,7 @@ public class Benchmark implements StateMachine {
       if (logDir != null) {
         prop.setProperty("logdir", logDir);
       }
+      prop.setProperty("timeout_ms", "200000");
       zab = new QuorumZab(this, prop);
       this.serverId = zab.getServerId();
     } catch (Exception ex) {
@@ -84,15 +87,6 @@ public class Benchmark implements StateMachine {
   }
 
   @Override
-  public void stateChanged(Zab.State state) {
-    if (state == Zab.State.LEADING || state == Zab.State.FOLLOWING) {
-      LOG.info("Entering broadcasting phase.");
-      this.currentState = state;
-      this.condBroadcasting.countDown();
-    }
-  }
-
-  @Override
   public void deliver(Zxid zxid, ByteBuffer stateUpdate, String clientId) {
     this.deliveredCount++;
     if (this.deliveredCount == this.txnCount) {
@@ -106,11 +100,27 @@ public class Benchmark implements StateMachine {
   }
 
   @Override
-  public void membersChange(Set<String> members) {
+  public void clusterChange(Set<String> members) {
     LOG.info("Members change to size of {}", members.size());
     if (members.size() == this.membersCount) {
       this.condMembers.countDown();
     }
+  }
+
+  @Override
+  public void leading(Set<String> activeFollowers) {
+    this.currentState = State.LEADING;
+    this.condBroadcasting.countDown();
+  }
+
+  @Override
+  public void following(String leader) {
+    this.currentState = State.FOLLOWING;
+    this.condBroadcasting.countDown();
+  }
+
+  @Override
+  public void recovering() {
   }
 
   public void start() throws IOException, InterruptedException {
@@ -127,15 +137,19 @@ public class Benchmark implements StateMachine {
              txnSize, this.txnCount, this.membersCount);
     this.condBroadcasting.await();
     long startNs = System.nanoTime();
-    if (this.currentState == Zab.State.LEADING) {
+    if (this.currentState == State.LEADING) {
       LOG.info("It's leading.");
       LOG.info("Waiting for member size changes to {}", this.membersCount);
       this.condMembers.await();
+      startNs = System.nanoTime();
       String message = new String(new char[txnSize]).replace('\0', 'a');
       ByteBuffer buffer = ByteBuffer.wrap(message.getBytes());
       for (int i = 0; i < this.txnCount; ++i) {
         this.zab.send(buffer);
       }
+    } else {
+      this.condMembers.await();
+      startNs = System.nanoTime();
     }
     this.condFinish.await();
     long endNs = System.nanoTime();
@@ -143,5 +157,6 @@ public class Benchmark implements StateMachine {
     LOG.info("Benchmark finished.");
     LOG.info("Duration : {} s", duration);
     LOG.info("Throughput : {} txns/s", this.txnCount / duration);
+    this.zab.shutdown();
   }
 }
