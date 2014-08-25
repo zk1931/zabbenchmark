@@ -1,11 +1,14 @@
 package org.apache.zabbenchmark;
 
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Set;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.InputStream;
 import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.util.Properties;
@@ -30,17 +33,23 @@ public class Benchmark implements StateMachine {
 
   int txnCount;
 
+  int txnSize;
+
   int deliveredCount = 0;
 
   int membersCount = 0;
 
-  CountDownLatch condFinish = new CountDownLatch(1);
+  int stateMemory = 0;
 
-  CountDownLatch condBroadcasting = new CountDownLatch(1);
+  CountDownLatch condFinish = new CountDownLatch(1);
 
   CountDownLatch condMembers = new CountDownLatch(1);
 
+  CountDownLatch condBroadcasting = new CountDownLatch(1);
+
   State currentState = null;
+
+  ConcurrentHashMap<Integer, String> state = new ConcurrentHashMap<>();
 
   enum State {
     LEADING,
@@ -61,14 +70,11 @@ public class Benchmark implements StateMachine {
         prop.setProperty("serverId", selfId);
         prop.setProperty("logdir", selfId);
       }
-      if (joinPeer != null) {
-        prop.setProperty("joinPeer", joinPeer);
-      }
       if (logDir != null) {
         prop.setProperty("logdir", logDir);
       }
       prop.setProperty("timeout_ms", "200000");
-      zab = new QuorumZab(this, prop);
+      zab = new QuorumZab(this, prop, joinPeer);
       this.serverId = zab.getServerId();
     } catch (Exception ex) {
       LOG.error("Caught exception : ", ex);
@@ -77,18 +83,35 @@ public class Benchmark implements StateMachine {
   }
 
   @Override
-  public void getState(OutputStream os) {
-    throw new UnsupportedOperationException();
+  public void save(OutputStream os) {
+    LOG.info("SAVE is called.");
+    try {
+      ObjectOutputStream out = new ObjectOutputStream(os);
+      out.writeObject(state);
+    } catch (IOException e) {
+      LOG.error("Caught exception", e);
+    }
   }
 
   @Override
-  public void setState(InputStream is) {
-    throw new UnsupportedOperationException();
+  public void restore(InputStream is) {
+    LOG.info("RESTORE is called.");
+    try {
+      ObjectInputStream oin = new ObjectInputStream(is);
+      state = (ConcurrentHashMap<Integer, String>)oin.readObject();
+      LOG.info("The size of map after recovery from snapshot file is {}",
+                state.size());
+    } catch (Exception e) {
+      LOG.error("Caught exception", e);
+    }
   }
 
   @Override
   public void deliver(Zxid zxid, ByteBuffer stateUpdate, String clientId) {
     this.deliveredCount++;
+    byte[] bytes = new byte[stateUpdate.remaining()];
+    stateUpdate.get(bytes);
+    state.put(deliveredCount % state.size(), new String(bytes));
     if (this.deliveredCount == this.txnCount) {
       this.condFinish.countDown();
     }
@@ -100,23 +123,23 @@ public class Benchmark implements StateMachine {
   }
 
   @Override
-  public void clusterChange(Set<String> members) {
-    LOG.info("Members change to size of {}", members.size());
+  public void leading(Set<String> activeFollowers, Set<String> members) {
+    this.currentState = State.LEADING;
+    this.condBroadcasting.countDown();
+    LOG.info("Cluster member size : {}", members.size());
     if (members.size() == this.membersCount) {
       this.condMembers.countDown();
     }
   }
 
   @Override
-  public void leading(Set<String> activeFollowers) {
-    this.currentState = State.LEADING;
-    this.condBroadcasting.countDown();
-  }
-
-  @Override
-  public void following(String leader) {
+  public void following(String leader, Set<String> members) {
     this.currentState = State.FOLLOWING;
     this.condBroadcasting.countDown();
+    LOG.info("Cluster member size : {}", members.size());
+    if (members.size() == this.membersCount) {
+      this.condMembers.countDown();
+    }
   }
 
   @Override
@@ -131,20 +154,23 @@ public class Benchmark implements StateMachine {
       LOG.warn("Can't find benchmark_config file, use default config.");
     }
     this.membersCount = Integer.parseInt(prop.getProperty("membersCount", "1"));
-    int txnSize = Integer.parseInt(prop.getProperty("txnSize", "128"));
+    this.txnSize = Integer.parseInt(prop.getProperty("txnSize", "128"));
     this.txnCount = Integer.parseInt(prop.getProperty("txnCount", "1000000"));
+    this.stateMemory =
+      Integer.parseInt(prop.getProperty("stateMemory", "1000000"));
+    initState();
     LOG.info("Benchmark begins : txnSize {}, txnCount : {}, membersCount : {}",
              txnSize, this.txnCount, this.membersCount);
     this.condBroadcasting.await();
-    long startNs = System.nanoTime();
+    long startNs;
     if (this.currentState == State.LEADING) {
       LOG.info("It's leading.");
       LOG.info("Waiting for member size changes to {}", this.membersCount);
       this.condMembers.await();
       startNs = System.nanoTime();
       String message = new String(new char[txnSize]).replace('\0', 'a');
-      ByteBuffer buffer = ByteBuffer.wrap(message.getBytes());
       for (int i = 0; i < this.txnCount; ++i) {
+        ByteBuffer buffer = ByteBuffer.wrap(message.getBytes());
         this.zab.send(buffer);
       }
     } else {
@@ -158,5 +184,16 @@ public class Benchmark implements StateMachine {
     LOG.info("Duration : {} s", duration);
     LOG.info("Throughput : {} txns/s", this.txnCount / duration);
     this.zab.shutdown();
+  }
+
+  void initState() {
+    LOG.info("Initializing the state.");
+    int numKeys = this.stateMemory / this.txnSize;
+    String value = new String(new char[txnSize]).replace('\0', 'a');
+    for (int i = 0; i < numKeys; ++i) {
+      state.put(i, value);
+    }
+    LOG.info("After initialize the memory, the state has size {}",
+             state.size());
   }
 }
