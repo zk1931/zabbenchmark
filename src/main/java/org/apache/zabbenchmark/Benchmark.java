@@ -68,6 +68,7 @@ public class Benchmark extends TimerTask implements StateMachine {
       String selfId = System.getProperty("serverId");
       String logDir = System.getProperty("logdir");
       String joinPeer = System.getProperty("join");
+      String snapshot = System.getProperty("snapshot", "-1");
       if (selfId != null && joinPeer == null) {
         joinPeer = selfId;
       }
@@ -80,6 +81,7 @@ public class Benchmark extends TimerTask implements StateMachine {
         prop.setProperty("logdir", logDir);
       }
       prop.setProperty("timeout_ms", "200000");
+      prop.setProperty("snapshot_threshold_bytes", snapshot);
       zab = new QuorumZab(this, prop, joinPeer);
       this.serverId = zab.getServerId();
     } catch (Exception ex) {
