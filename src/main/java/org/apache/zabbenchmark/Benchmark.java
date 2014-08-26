@@ -47,6 +47,8 @@ public class Benchmark extends TimerTask implements StateMachine {
 
   int stateMemory = 0;
 
+  int timeInterval = 0;
+
   CountDownLatch condFinish = new CountDownLatch(1);
 
   CountDownLatch condMembers = new CountDownLatch(1);
@@ -56,8 +58,6 @@ public class Benchmark extends TimerTask implements StateMachine {
   State currentState = null;
 
   ConcurrentHashMap<Integer, String> state = new ConcurrentHashMap<>();
-
-  int timeInterval = 5000;
 
   enum State {
     LEADING,
@@ -170,6 +170,8 @@ public class Benchmark extends TimerTask implements StateMachine {
     this.txnCount = Integer.parseInt(prop.getProperty("txnCount", "1000000"));
     this.stateMemory =
       Integer.parseInt(prop.getProperty("stateMemory", "1000000"));
+    this.timeInterval =
+      Integer.parseInt(prop.getProperty("timeInterval", "3000"));
     initState();
     LOG.info("Benchmark begins : txnSize {}, txnCount : {}, membersCount : {}",
              txnSize, this.txnCount, this.membersCount);
