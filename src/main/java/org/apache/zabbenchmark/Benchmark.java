@@ -1,15 +1,17 @@
 package org.apache.zabbenchmark;
 
+import java.io.BufferedOutputStream;
+import java.io.DataOutputStream;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.InputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.Timer;
@@ -93,25 +95,27 @@ public class Benchmark extends TimerTask implements StateMachine {
   @Override
   public void save(OutputStream os) {
     LOG.info("SAVE is called.");
+    long startNs = System.nanoTime();
     try {
-      ObjectOutputStream out = new ObjectOutputStream(os);
-      out.writeObject(state);
-    } catch (IOException e) {
+      DataOutputStream out =
+        new DataOutputStream(new BufferedOutputStream(os));
+      Iterator<Map.Entry<Integer, String>> iter
+        = state.entrySet().iterator();
+      while (iter.hasNext()) {
+        Map.Entry<Integer, String> pairs = iter.next();
+        out.writeInt(pairs.getKey());
+        out.writeBytes(pairs.getValue());
+      }
+    } catch (Exception e) {
       LOG.error("Caught exception", e);
     }
+    LOG.info("SAVE ends, it took {} milliseconds to finish.",
+             (System.nanoTime() - startNs) / 1000 / 1000);
   }
 
   @Override
   public void restore(InputStream is) {
     LOG.info("RESTORE is called.");
-    try {
-      ObjectInputStream oin = new ObjectInputStream(is);
-      state = (ConcurrentHashMap<Integer, String>)oin.readObject();
-      LOG.info("The size of map after recovery from snapshot file is {}",
-                state.size());
-    } catch (Exception e) {
-      LOG.error("Caught exception", e);
-    }
   }
 
   @Override
@@ -180,6 +184,9 @@ public class Benchmark extends TimerTask implements StateMachine {
       startNs = System.nanoTime();
       String message = new String(new char[txnSize]).replace('\0', 'a');
       for (int i = 0; i < this.txnCount; ++i) {
+        if (i - deliveredCount > 50000) {
+          Thread.sleep(100);
+        }
         ByteBuffer buffer = ByteBuffer.wrap(message.getBytes());
         this.zab.send(buffer);
       }
