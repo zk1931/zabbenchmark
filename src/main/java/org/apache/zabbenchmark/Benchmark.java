@@ -1,8 +1,5 @@
 package org.apache.zabbenchmark;
 
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.Set;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.InputStream;
@@ -11,7 +8,12 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Properties;
+import java.util.Set;
+import java.util.Timer;
+import java.util.TimerTask;
 import org.apache.zab.QuorumZab;
 import org.apache.zab.StateMachine;
 import org.apache.zab.Zxid;
@@ -21,7 +23,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Benchmark.
  */
-public class Benchmark implements StateMachine {
+public class Benchmark extends TimerTask implements StateMachine {
 
   private static final Logger LOG = LoggerFactory.getLogger(Benchmark.class);
 
@@ -35,7 +37,9 @@ public class Benchmark implements StateMachine {
 
   int txnSize;
 
-  int deliveredCount = 0;
+  volatile int deliveredCount = 0;
+
+  int deliveredCountForLastTimer = 0;
 
   int membersCount = 0;
 
@@ -50,6 +54,8 @@ public class Benchmark implements StateMachine {
   State currentState = null;
 
   ConcurrentHashMap<Integer, String> state = new ConcurrentHashMap<>();
+
+  int timeInterval = 5000;
 
   enum State {
     LEADING,
@@ -163,10 +169,12 @@ public class Benchmark implements StateMachine {
              txnSize, this.txnCount, this.membersCount);
     this.condBroadcasting.await();
     long startNs;
+    Timer timer = new Timer();
     if (this.currentState == State.LEADING) {
       LOG.info("It's leading.");
       LOG.info("Waiting for member size changes to {}", this.membersCount);
       this.condMembers.await();
+      timer.scheduleAtFixedRate(this, 0, timeInterval);
       startNs = System.nanoTime();
       String message = new String(new char[txnSize]).replace('\0', 'a');
       for (int i = 0; i < this.txnCount; ++i) {
@@ -175,9 +183,11 @@ public class Benchmark implements StateMachine {
       }
     } else {
       this.condMembers.await();
+      timer.scheduleAtFixedRate(this, 0, timeInterval);
       startNs = System.nanoTime();
     }
     this.condFinish.await();
+    timer.cancel();
     long endNs = System.nanoTime();
     double duration = ((double)(endNs - startNs)) / 1000000000;
     LOG.info("Benchmark finished.");
@@ -195,5 +205,12 @@ public class Benchmark implements StateMachine {
     }
     LOG.info("After initialize the memory, the state has size {}",
              state.size());
+  }
+
+  @Override
+  public void run() {
+    int lastIntervalThroughput = deliveredCount - deliveredCountForLastTimer;
+    deliveredCountForLastTimer = deliveredCount;
+    LOG.info("timer {}", lastIntervalThroughput / (float)(timeInterval / 1000));
   }
 }
