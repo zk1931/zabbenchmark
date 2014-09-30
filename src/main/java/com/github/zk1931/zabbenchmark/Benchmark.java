@@ -1,4 +1,4 @@
-package org.apache.zabbenchmark;
+package com.github.zk1931.zabbenchmark;
 
 import java.io.BufferedOutputStream;
 import java.io.DataOutputStream;
@@ -16,9 +16,9 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
-import org.apache.zab.QuorumZab;
-import org.apache.zab.StateMachine;
-import org.apache.zab.Zxid;
+import com.github.zk1931.jzab.QuorumZab;
+import com.github.zk1931.jzab.StateMachine;
+import com.github.zk1931.jzab.Zxid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -130,6 +130,11 @@ public class Benchmark extends TimerTask implements StateMachine {
   }
 
   @Override
+  public void flushed(ByteBuffer request) {
+    // Does nothing.
+  }
+
+  @Override
   public ByteBuffer preprocess(Zxid zxid, ByteBuffer message) {
     return message;
   }
@@ -186,9 +191,6 @@ public class Benchmark extends TimerTask implements StateMachine {
       startNs = System.nanoTime();
       String message = new String(new char[txnSize]).replace('\0', 'a');
       for (int i = 0; i < this.txnCount; ++i) {
-        if (i - deliveredCount > 50000) {
-          Thread.sleep(100);
-        }
         ByteBuffer buffer = ByteBuffer.wrap(message.getBytes());
         this.zab.send(buffer);
       }

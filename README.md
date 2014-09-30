@@ -1,10 +1,10 @@
 zabbenchmark
 ============
 
-Benchmark for [javazab](https://github.com/ZK-1931/javazab)
+Benchmark for [Jzab](https://github.com/zk1931/jzab)
 
 ### Configuration
-You can configure it by creating a configuration file ```benchmark_config``` in root directory of the project. The default configuration is 
+You can configure it by creating a configuration file ```benchmark_config``` in root directory of the project. The default configuration is
 ```
 membersCount = 1
 txnSize = 128
@@ -19,7 +19,7 @@ Let's say if you run the benchmark on a cluster of 3 servers.
     mvn -DserverId="host3:port3" -Djoin="host1:port1" exec:java
 
 ### Performance
-- Configuration : 
+- Configuration :
  - transaction size = 128 bytes
  - batch size = 1000
  - number of servers = 3

@@ -1,4 +1,4 @@
-package org.apache.zabbenchmark;
+package com.github.zk1931.zabbenchmark;
 
 /**
  * Main.
