@@ -16,7 +16,8 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
-import com.github.zk1931.jzab.QuorumZab;
+import com.github.zk1931.jzab.Zab;
+import com.github.zk1931.jzab.ZabException;
 import com.github.zk1931.jzab.StateMachine;
 import com.github.zk1931.jzab.Zxid;
 import org.slf4j.Logger;
@@ -26,37 +27,21 @@ import org.slf4j.LoggerFactory;
  * Benchmark.
  */
 public class Benchmark extends TimerTask implements StateMachine {
-
   private static final Logger LOG = LoggerFactory.getLogger(Benchmark.class);
-
-  final QuorumZab zab;
-
+  final Zab zab;
   String serverId;
-
   private static final String CONFIG = "benchmark_config";
-
   int txnCount;
-
   int txnSize;
-
   volatile int deliveredCount = 0;
-
   int deliveredCountForLastTimer = 0;
-
   int membersCount = 0;
-
   int stateMemory = 0;
-
   int timeInterval = 0;
-
   CountDownLatch condFinish = new CountDownLatch(1);
-
   CountDownLatch condMembers = new CountDownLatch(1);
-
   CountDownLatch condBroadcasting = new CountDownLatch(1);
-
   State currentState = null;
-
   ConcurrentHashMap<Integer, String> state = new ConcurrentHashMap<>();
 
   enum State {
@@ -82,9 +67,11 @@ public class Benchmark extends TimerTask implements StateMachine {
       if (logDir != null) {
         prop.setProperty("logdir", logDir);
       }
-      prop.setProperty("timeout_ms", "200000");
+      prop.setProperty("timeout_ms", "3000");
+      //prop.setProperty("sync_timeout_ms", "30000");
+      prop.setProperty("min_sync_timeout_ms", "50000");
       prop.setProperty("snapshot_threshold_bytes", snapshot);
-      zab = new QuorumZab(this, prop, joinPeer);
+      zab = new Zab(this, prop, joinPeer);
       this.serverId = zab.getServerId();
     } catch (Exception ex) {
       LOG.error("Caught exception : ", ex);
@@ -144,7 +131,7 @@ public class Benchmark extends TimerTask implements StateMachine {
     this.currentState = State.LEADING;
     this.condBroadcasting.countDown();
     LOG.info("Cluster member size : {}", members.size());
-    if (members.size() == this.membersCount) {
+    if (members.size() >= this.membersCount) {
       this.condMembers.countDown();
     }
   }
@@ -154,16 +141,17 @@ public class Benchmark extends TimerTask implements StateMachine {
     this.currentState = State.FOLLOWING;
     this.condBroadcasting.countDown();
     LOG.info("Cluster member size : {}", members.size());
-    if (members.size() == this.membersCount) {
+    if (members.size() >= this.membersCount) {
       this.condMembers.countDown();
     }
   }
 
   @Override
   public void recovering() {
+    LOG.info("Recovering...");
   }
 
-  public void start() throws IOException, InterruptedException {
+  void initializeConfiguration() throws IOException {
     Properties prop = new Properties();
     try (FileInputStream fin = new FileInputStream(CONFIG)) {
       prop.load(fin);
@@ -177,9 +165,19 @@ public class Benchmark extends TimerTask implements StateMachine {
       Integer.parseInt(prop.getProperty("stateMemory", "1000000"));
     this.timeInterval =
       Integer.parseInt(prop.getProperty("timeInterval", "3000"));
+    LOG.info("Benchmark configurations { txnSize: {}, txnCount: {}" +
+             ", membersCount: {}, timeInterval: {}, stateMemory: {}",
+             this.txnSize, this.txnCount, this.membersCount, this.timeInterval,
+             this.stateMemory);
+  }
+
+  public void start() throws IOException, InterruptedException {
+    // Initializes configuration from configuration file or use default
+    // configuration.
+    initializeConfiguration();
+    // Initialze the state machine.
     initState();
-    LOG.info("Benchmark begins : txnSize {}, txnCount : {}, membersCount : {}",
-             txnSize, this.txnCount, this.membersCount);
+
     this.condBroadcasting.await();
     long startNs;
     Timer timer = new Timer();
@@ -192,7 +190,11 @@ public class Benchmark extends TimerTask implements StateMachine {
       String message = new String(new char[txnSize]).replace('\0', 'a');
       for (int i = 0; i < this.txnCount; ++i) {
         ByteBuffer buffer = ByteBuffer.wrap(message.getBytes());
-        this.zab.send(buffer);
+        try {
+          this.zab.send(buffer);
+        } catch (ZabException.NotBroadcastingPhaseException e) {
+          LOG.warn("Send transaction not in broadcasting phase.");
+        }
       }
     } else {
       this.condMembers.await();
@@ -224,6 +226,8 @@ public class Benchmark extends TimerTask implements StateMachine {
   public void run() {
     int lastIntervalThroughput = deliveredCount - deliveredCountForLastTimer;
     deliveredCountForLastTimer = deliveredCount;
-    LOG.info("timer {}", lastIntervalThroughput / (float)(timeInterval / 1000));
+    LOG.info("timer {} {}",
+             lastIntervalThroughput / (float)(timeInterval / 1000),
+             deliveredCount);
   }
 }
