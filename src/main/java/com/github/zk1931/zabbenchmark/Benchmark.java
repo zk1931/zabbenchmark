@@ -3,6 +3,7 @@ package com.github.zk1931.zabbenchmark;
 import java.io.BufferedOutputStream;
 import java.io.DataOutputStream;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.FileNotFoundException;
 import java.io.InputStream;
 import java.io.IOException;
@@ -100,6 +101,7 @@ public class Benchmark extends TimerTask implements StateMachine {
         count++;
         if (count % syncThreshold == 0) {
           out.flush();
+          ((FileOutputStream)os).getChannel().force(false);
         }
       }
     } catch (Exception e) {
