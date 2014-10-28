@@ -7,6 +7,7 @@ import java.io.FileNotFoundException;
 import java.io.InputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.Serializable;
 import java.nio.ByteBuffer;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ConcurrentHashMap;
@@ -34,7 +35,9 @@ public class Benchmark extends TimerTask implements StateMachine {
   int txnCount;
   int txnSize;
   volatile int deliveredCount = 0;
+  volatile long latencyTotal = 0;
   int deliveredCountForLastTimer = 0;
+  long latencyTotalForLastTimer = 0;
   int membersCount = 0;
   int stateMemory = 0;
   int timeInterval = 0;
@@ -111,6 +114,8 @@ public class Benchmark extends TimerTask implements StateMachine {
     byte[] bytes = new byte[stateUpdate.remaining()];
     stateUpdate.get(bytes);
     state.put(deliveredCount % state.size(), new String(bytes));
+    FakeTxn txn = (FakeTxn)Serializer.deserialize(bytes);
+    this.latencyTotal += (System.nanoTime() - txn.createTm) / 1000000;
     if (this.deliveredCount == this.txnCount) {
       this.condFinish.countDown();
     }
@@ -166,7 +171,7 @@ public class Benchmark extends TimerTask implements StateMachine {
     this.timeInterval =
       Integer.parseInt(prop.getProperty("timeInterval", "3000"));
     LOG.info("Benchmark configurations { txnSize: {}, txnCount: {}" +
-             ", membersCount: {}, timeInterval: {}, stateMemory: {}",
+             ", membersCount: {}, timeInterval: {}, stateMemory: {} }.",
              this.txnSize, this.txnCount, this.membersCount, this.timeInterval,
              this.stateMemory);
   }
@@ -187,9 +192,9 @@ public class Benchmark extends TimerTask implements StateMachine {
       this.condMembers.await();
       timer.scheduleAtFixedRate(this, 0, timeInterval);
       startNs = System.nanoTime();
-      String message = new String(new char[txnSize]).replace('\0', 'a');
       for (int i = 0; i < this.txnCount; ++i) {
-        ByteBuffer buffer = ByteBuffer.wrap(message.getBytes());
+        FakeTxn txn = new FakeTxn(this.txnSize);
+        ByteBuffer buffer = Serializer.serialize(txn);
         try {
           this.zab.send(buffer);
         } catch (ZabException.NotBroadcastingPhaseException e) {
@@ -208,6 +213,7 @@ public class Benchmark extends TimerTask implements StateMachine {
     LOG.info("Benchmark finished.");
     LOG.info("Duration : {} s", duration);
     LOG.info("Throughput : {} txns/s", this.txnCount / duration);
+    LOG.info("Latency : {} ms/txn", this.latencyTotal / this.txnCount);
     this.zab.shutdown();
   }
 
@@ -225,9 +231,27 @@ public class Benchmark extends TimerTask implements StateMachine {
   @Override
   public void run() {
     int lastIntervalThroughput = deliveredCount - deliveredCountForLastTimer;
+    long lastIntervalLatency = latencyTotal - latencyTotalForLastTimer;
     deliveredCountForLastTimer = deliveredCount;
-    LOG.info("timer {} {}",
+    latencyTotalForLastTimer = latencyTotal;
+    long avgLatency = (lastIntervalThroughput == 0)? 0 :
+      lastIntervalLatency / lastIntervalThroughput;
+    LOG.info("Timer: throughput {},  latency {}, deliver {}.",
              lastIntervalThroughput / (float)(timeInterval / 1000),
+             avgLatency,
              deliveredCount);
+  }
+
+
+  static class FakeTxn implements Serializable {
+    private static final long serialVersionUID = 0L;
+    final long createTm;
+    final byte[] buffer;
+
+    FakeTxn(int txnSize) {
+      String data = new String(new char[txnSize]).replace('\0', 'a');
+      this.buffer = data.getBytes();
+      this.createTm = System.nanoTime();
+    }
   }
 }
