@@ -1,0 +1,6 @@
+if [ "$#" -le 2 ]; then
+  echo "Wrong arguments."
+  exit 1
+fi
+
+java -DserverId=${1} -Djoin=${2} -Dsnapshot=${3} -cp ./bin/zabbenchmark-jar-with-dependencies.jar com.github.zk1931.zabbenchmark.Main

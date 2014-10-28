@@ -3,6 +3,11 @@ zabbenchmark
 
 Benchmark for [Jzab](https://github.com/zk1931/jzab)
 
+### Compilation
+```
+mvn clean compile assembly:single
+```
+
 ### Configuration
 You can configure it by creating a configuration file ```benchmark_config``` in root directory of the project. The default configuration is
 ```

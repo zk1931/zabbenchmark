@@ -113,8 +113,8 @@ public class Benchmark extends TimerTask implements StateMachine {
     this.deliveredCount++;
     byte[] bytes = new byte[stateUpdate.remaining()];
     stateUpdate.get(bytes);
-    state.put(deliveredCount % state.size(), new String(bytes));
     FakeTxn txn = (FakeTxn)Serializer.deserialize(bytes);
+    state.put(deliveredCount % state.size(), new String(txn.buffer));
     this.latencyTotal += (System.nanoTime() - txn.createTm) / 1000000;
     if (this.deliveredCount == this.txnCount) {
       this.condFinish.countDown();
@@ -139,9 +139,12 @@ public class Benchmark extends TimerTask implements StateMachine {
     for (String peer : activeFollowers) {
       LOG.info(" -- {}", peer);
     }
-    LOG.info("Cluster configuration change : ", clusterMembers.size());
-    for (String peer : clusterMembers) {
+    LOG.info("Cluster configuration change : ", members.size());
+    for (String peer : members) {
       LOG.info(" -- {}", peer);
+    }
+    if (members.size() >= this.membersCount) {
+      this.condMembers.countDown();
     }
   }
 
@@ -150,9 +153,12 @@ public class Benchmark extends TimerTask implements StateMachine {
     this.currentState = State.FOLLOWING;
     this.condBroadcasting.countDown();
     LOG.info("FOLLOWING {}", leader);
-    LOG.info("Cluster configuration change : ", clusterMembers.size());
-    for (String peer : clusterMembers) {
+    LOG.info("Cluster configuration change : ", members.size());
+    for (String peer : members) {
       LOG.info(" -- {}", peer);
+    }
+    if (members.size() >= this.membersCount) {
+      this.condMembers.countDown();
     }
   }
 
