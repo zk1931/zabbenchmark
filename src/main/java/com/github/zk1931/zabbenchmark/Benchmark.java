@@ -86,6 +86,8 @@ public class Benchmark extends TimerTask implements StateMachine {
   public void save(OutputStream os) {
     LOG.info("SAVE is called.");
     long startNs = System.nanoTime();
+    int count = 0;
+    int syncThreshold = state.size() / 10;
     try {
       DataOutputStream out =
         new DataOutputStream(new BufferedOutputStream(os));
@@ -95,6 +97,10 @@ public class Benchmark extends TimerTask implements StateMachine {
         Map.Entry<Integer, String> pairs = iter.next();
         out.writeInt(pairs.getKey());
         out.writeBytes(pairs.getValue());
+        count++;
+        if (count % syncThreshold == 0) {
+          out.flush();
+        }
       }
     } catch (Exception e) {
       LOG.error("Caught exception", e);
@@ -113,8 +119,8 @@ public class Benchmark extends TimerTask implements StateMachine {
     this.deliveredCount++;
     byte[] bytes = new byte[stateUpdate.remaining()];
     stateUpdate.get(bytes);
-    state.put(deliveredCount % state.size(), new String(bytes));
     FakeTxn txn = (FakeTxn)Serializer.deserialize(bytes);
+    state.put(deliveredCount % state.size(), new String(txn.buffer));
     this.latencyTotal += (System.nanoTime() - txn.createTm) / 1000000;
     if (this.deliveredCount == this.txnCount) {
       this.condFinish.countDown();
@@ -139,9 +145,12 @@ public class Benchmark extends TimerTask implements StateMachine {
     for (String peer : activeFollowers) {
       LOG.info(" -- {}", peer);
     }
-    LOG.info("Cluster configuration change : ", clusterMembers.size());
-    for (String peer : clusterMembers) {
+    LOG.info("Cluster configuration change : ", members.size());
+    for (String peer : members) {
       LOG.info(" -- {}", peer);
+    }
+    if (members.size() >= this.membersCount) {
+      this.condMembers.countDown();
     }
   }
 
@@ -150,9 +159,12 @@ public class Benchmark extends TimerTask implements StateMachine {
     this.currentState = State.FOLLOWING;
     this.condBroadcasting.countDown();
     LOG.info("FOLLOWING {}", leader);
-    LOG.info("Cluster configuration change : ", clusterMembers.size());
-    for (String peer : clusterMembers) {
+    LOG.info("Cluster configuration change : ", members.size());
+    for (String peer : members) {
       LOG.info(" -- {}", peer);
+    }
+    if (members.size() >= this.membersCount) {
+      this.condMembers.countDown();
     }
   }
 
