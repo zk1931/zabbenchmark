@@ -70,7 +70,7 @@ public class Benchmark extends TimerTask implements StateMachine {
       if (logDir != null) {
         prop.setProperty("logdir", logDir);
       }
-      prop.setProperty("timeout_ms", "3000");
+      prop.setProperty("timeout_ms", "5000");
       //prop.setProperty("sync_timeout_ms", "30000");
       prop.setProperty("min_sync_timeout_ms", "50000");
       prop.setProperty("snapshot_threshold_bytes", snapshot);
@@ -135,9 +135,13 @@ public class Benchmark extends TimerTask implements StateMachine {
   public void leading(Set<String> activeFollowers, Set<String> members) {
     this.currentState = State.LEADING;
     this.condBroadcasting.countDown();
-    LOG.info("Cluster member size : {}", members.size());
-    if (members.size() >= this.membersCount) {
-      this.condMembers.countDown();
+    LOG.info("LEADING with active followers : ");
+    for (String peer : activeFollowers) {
+      LOG.info(" -- {}", peer);
+    }
+    LOG.info("Cluster configuration change : ", clusterMembers.size());
+    for (String peer : clusterMembers) {
+      LOG.info(" -- {}", peer);
     }
   }
 
@@ -145,9 +149,10 @@ public class Benchmark extends TimerTask implements StateMachine {
   public void following(String leader, Set<String> members) {
     this.currentState = State.FOLLOWING;
     this.condBroadcasting.countDown();
-    LOG.info("Cluster member size : {}", members.size());
-    if (members.size() >= this.membersCount) {
-      this.condMembers.countDown();
+    LOG.info("FOLLOWING {}", leader);
+    LOG.info("Cluster configuration change : ", clusterMembers.size());
+    for (String peer : clusterMembers) {
+      LOG.info(" -- {}", peer);
     }
   }
 
