@@ -47,6 +47,9 @@ public class Benchmark extends TimerTask implements StateMachine {
   CountDownLatch condBroadcasting = new CountDownLatch(1);
   State currentState = null;
   ConcurrentHashMap<Integer, String> state = new ConcurrentHashMap<>();
+  // 0 ~ 1000 ms. Each elements represents the interval of 10 ms.
+  int[] latencyDistribution = new int[100];
+
 
   enum State {
     LEADING,
@@ -123,10 +126,13 @@ public class Benchmark extends TimerTask implements StateMachine {
     stateUpdate.get(bytes);
     FakeTxn txn = (FakeTxn)Serializer.deserialize(bytes);
     state.put(deliveredCount % state.size(), new String(txn.buffer));
-    this.latencyTotal += (System.nanoTime() - txn.createTm) / 1000000;
+    long latency = (System.nanoTime() - txn.createTm) / 1000000;
+    this.latencyTotal += latency;
     if (this.deliveredCount == this.txnCount) {
       this.condFinish.countDown();
     }
+    int idx = (int)latency / 10;
+    this.latencyDistribution[idx] = latencyDistribution[idx]+1;
   }
 
   @Override
