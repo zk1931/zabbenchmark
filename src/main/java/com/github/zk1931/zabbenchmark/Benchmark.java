@@ -132,7 +132,9 @@ public class Benchmark extends TimerTask implements StateMachine {
       this.condFinish.countDown();
     }
     int idx = (int)latency / 10;
-    this.latencyDistribution[idx] = latencyDistribution[idx]+1;
+    if (serverId.equals(clientId)) {
+      this.latencyDistribution[idx] = latencyDistribution[idx]+1;
+    }
   }
 
   @Override
@@ -211,7 +213,7 @@ public class Benchmark extends TimerTask implements StateMachine {
     this.condBroadcasting.await();
     long startNs;
     Timer timer = new Timer();
-    if (this.currentState == State.LEADING) {
+    if (this.currentState == State.FOLLOWING) {
       LOG.info("It's leading.");
       LOG.info("Waiting for member size changes to {}", this.membersCount);
       this.condMembers.await();
@@ -224,6 +226,7 @@ public class Benchmark extends TimerTask implements StateMachine {
           this.zab.send(buffer);
         } catch (ZabException.NotBroadcastingPhaseException e) {
           LOG.warn("Send transaction not in broadcasting phase.");
+          Thread.sleep(500);
         }
       }
     } else {
