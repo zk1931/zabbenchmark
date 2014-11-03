@@ -53,7 +53,7 @@ public class Benchmark extends TimerTask implements StateMachine {
   ConcurrentHashMap<Integer, String> state = new ConcurrentHashMap<>();
   // 0 ~ 1000 ms. Each elements represents the interval of 10 ms.
   int[] latencyDistribution = new int[100];
-
+  boolean multipleFsync;
 
   enum State {
     LEADING,
@@ -63,6 +63,7 @@ public class Benchmark extends TimerTask implements StateMachine {
   public Benchmark() {
     LOG.debug("Benchmark.");
     try {
+      this.multipleFsync = System.getProperty("multipleFsync", "0").equals("1");
       String selfId = System.getProperty("serverId");
       String logDir = System.getProperty("logdir");
       String joinPeer = System.getProperty("join");
@@ -106,7 +107,7 @@ public class Benchmark extends TimerTask implements StateMachine {
         out.writeInt(pairs.getKey());
         out.writeBytes(pairs.getValue());
         count++;
-        if (count % syncThreshold == 0) {
+        if (multipleFsync && count % syncThreshold == 0) {
           out.flush();
           ((FileOutputStream)os).getChannel().force(false);
         }
