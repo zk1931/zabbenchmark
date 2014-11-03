@@ -1,0 +1,9 @@
+package zabbenchmark;
+
+option java_package = "com.github.zk1931.zabbenchmark.proto";
+option java_outer_classname = "Transaction";
+
+message Txn {
+  required int64 timestamp = 1;
+  required bytes body = 2;
+}

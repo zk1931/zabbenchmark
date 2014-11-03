@@ -1,5 +1,6 @@
 package com.github.zk1931.zabbenchmark;
 
+import com.google.protobuf.ByteString;
 import java.io.BufferedOutputStream;
 import java.io.DataOutputStream;
 import java.io.FileInputStream;
@@ -8,7 +9,6 @@ import java.io.FileNotFoundException;
 import java.io.InputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.io.Serializable;
 import java.nio.ByteBuffer;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ConcurrentHashMap;
@@ -18,6 +18,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
+import com.github.zk1931.zabbenchmark.proto.Transaction.Txn;
 import com.github.zk1931.jzab.Zab;
 import com.github.zk1931.jzab.ZabException;
 import com.github.zk1931.jzab.StateMachine;
@@ -29,6 +30,9 @@ import org.slf4j.LoggerFactory;
  * Benchmark.
  */
 public class Benchmark extends TimerTask implements StateMachine {
+
+  Txn txn1 = null;
+
   private static final Logger LOG = LoggerFactory.getLogger(Benchmark.class);
   final Zab zab;
   String serverId;
@@ -121,22 +125,24 @@ public class Benchmark extends TimerTask implements StateMachine {
 
   @Override
   public void deliver(Zxid zxid, ByteBuffer stateUpdate, String clientId) {
-    this.deliveredCount++;
-    byte[] bytes = new byte[stateUpdate.remaining()];
-    stateUpdate.get(bytes);
-    FakeTxn txn = (FakeTxn)Serializer.deserialize(bytes);
-    state.put(deliveredCount % state.size(), new String(txn.buffer));
-    long latency = (System.nanoTime() - txn.createTm) / 1000000;
-    this.latencyTotal += latency;
-    if (this.deliveredCount == this.txnCount) {
-      this.condFinish.countDown();
+    try {
+      this.deliveredCount++;
+      FakeTxn txn = FakeTxn.fromByteBuffer(stateUpdate);
+      // state.put(deliveredCount % state.size(), new String(txn.body));
+      long latency = (System.nanoTime() - txn.timestamp) / 1000000;
+      this.latencyTotal += latency;
+      if (this.deliveredCount == this.txnCount) {
+        this.condFinish.countDown();
+      }
+      /*
+      int idx = (int)latency / 10;
+      if (serverId.equals(clientId)) {
+        this.latencyDistribution[idx] = latencyDistribution[idx]+1;
+      }
+      */
+    } catch (Exception ex) {
+      LOG.debug("exception");
     }
-    /*
-    int idx = (int)latency / 10;
-    if (serverId.equals(clientId)) {
-      this.latencyDistribution[idx] = latencyDistribution[idx]+1;
-    }
-    */
   }
 
   @Override
@@ -215,17 +221,19 @@ public class Benchmark extends TimerTask implements StateMachine {
     this.condBroadcasting.await();
     long startNs;
     Timer timer = new Timer();
+
     if (this.currentState == State.FOLLOWING) {
       LOG.info("It's leading.");
       LOG.info("Waiting for member size changes to {}", this.membersCount);
       this.condMembers.await();
       timer.scheduleAtFixedRate(this, 0, timeInterval);
       startNs = System.nanoTime();
+      byte[] data = new String(new char[txnSize]).replace('\0', 'a').getBytes();
+
       for (int i = 0; i < this.txnCount; ++i) {
-        FakeTxn txn = new FakeTxn(this.txnSize);
-        ByteBuffer buffer = Serializer.serialize(txn);
+        FakeTxn txn = new FakeTxn(ByteBuffer.wrap(data));
         try {
-          this.zab.send(buffer);
+          this.zab.send(txn.toByteBuffer());
         } catch (ZabException.NotBroadcastingPhaseException e) {
           LOG.warn("Send transaction not in broadcasting phase.");
           Thread.sleep(500);
@@ -272,16 +280,32 @@ public class Benchmark extends TimerTask implements StateMachine {
              deliveredCount);
   }
 
+  static class FakeTxn {
+    final ByteBuffer body;
+    final long timestamp;
 
-  static class FakeTxn implements Serializable {
-    private static final long serialVersionUID = 0L;
-    final long createTm;
-    final byte[] buffer;
+    FakeTxn(ByteBuffer body) {
+      this.timestamp = System.nanoTime();
+      this.body = body;
+    }
 
-    FakeTxn(int txnSize) {
-      String data = new String(new char[txnSize]).replace('\0', 'a');
-      this.buffer = data.getBytes();
-      this.createTm = System.nanoTime();
+    FakeTxn(long ts, ByteBuffer body) {
+      this.timestamp = ts;
+      this.body = body;
+    }
+
+    ByteBuffer toByteBuffer() {
+      Txn txn = Txn.newBuilder().setTimestamp(System.nanoTime())
+                   .setBody(ByteString.copyFrom(body)).build();
+      return ByteBuffer.wrap(txn.toByteArray());
+    }
+
+    static FakeTxn fromByteBuffer(ByteBuffer buffer) throws Exception {
+      byte[] bytes = new byte[buffer.remaining()];
+      buffer.get(bytes);
+      Txn txn = Txn.parseFrom(bytes);
+      return new FakeTxn(txn.getTimestamp(),
+                         txn.getBody().asReadOnlyByteBuffer());
     }
   }
 }
