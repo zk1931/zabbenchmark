@@ -131,10 +131,12 @@ public class Benchmark extends TimerTask implements StateMachine {
     if (this.deliveredCount == this.txnCount) {
       this.condFinish.countDown();
     }
+    /*
     int idx = (int)latency / 10;
     if (serverId.equals(clientId)) {
       this.latencyDistribution[idx] = latencyDistribution[idx]+1;
     }
+    */
   }
 
   @Override
