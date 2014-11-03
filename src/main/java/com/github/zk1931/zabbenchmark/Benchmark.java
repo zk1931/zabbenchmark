@@ -198,7 +198,7 @@ public class Benchmark extends TimerTask implements StateMachine {
     this.stateMemory =
       Integer.parseInt(prop.getProperty("stateMemory", "1000000"));
     this.timeInterval =
-      Integer.parseInt(prop.getProperty("timeInterval", "3000"));
+      Integer.parseInt(prop.getProperty("timeInterval", "1000"));
     LOG.info("Benchmark configurations { txnSize: {}, txnCount: {}" +
              ", membersCount: {}, timeInterval: {}, stateMemory: {} }.",
              this.txnSize, this.txnCount, this.membersCount, this.timeInterval,
