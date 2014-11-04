@@ -20,6 +20,7 @@ import java.util.Timer;
 import java.util.TimerTask;
 import com.github.zk1931.zabbenchmark.proto.Transaction.Txn;
 import com.github.zk1931.jzab.Zab;
+import com.github.zk1931.jzab.ZabConfig;
 import com.github.zk1931.jzab.ZabException;
 import com.github.zk1931.jzab.StateMachine;
 import com.github.zk1931.jzab.Zxid;
@@ -62,22 +63,22 @@ public class Benchmark extends TimerTask implements StateMachine {
       String selfId = System.getProperty("serverId");
       String logDir = System.getProperty("logdir");
       String joinPeer = System.getProperty("join");
-      String snapshot = System.getProperty("snapshot", "-1");
+      long snapshot = Long.parseLong(System.getProperty("snapshot", "-1"));
       if (selfId != null && joinPeer == null) {
         joinPeer = selfId;
       }
-      Properties prop = new Properties();
+      ZabConfig config = new ZabConfig();
       if (selfId != null) {
-        prop.setProperty("serverId", selfId);
-        prop.setProperty("logdir", selfId);
+        config.setServerId(selfId);
+        config.setLogDir(selfId);
       }
       if (logDir != null) {
-        prop.setProperty("logdir", logDir);
+        config.setLogDir(logDir);
       }
-      prop.setProperty("timeout_ms", "5000");
-      prop.setProperty("min_sync_timeout_ms", "50000");
-      prop.setProperty("snapshot_threshold_bytes", snapshot);
-      zab = new Zab(this, prop, joinPeer);
+      config.setTimeoutMs(5000);
+      config.setMinSyncTimeoutMs(5000);
+      config.setSnapshotThreshold(snapshot);
+      zab = new Zab(this, config, joinPeer);
       this.serverId = zab.getServerId();
     } catch (Exception ex) {
       LOG.error("Caught exception : ", ex);
@@ -266,7 +267,7 @@ public class Benchmark extends TimerTask implements StateMachine {
     latencyTotalForLastTimer = latencyTotal;
     long avgLatency = (lastIntervalThroughput == 0)? 0 :
       lastIntervalLatency / lastIntervalThroughput;
-    LOG.info("Timer: throughput {},  latency {}, memory {}, deliver {}.",
+    LOG.info("Timer: throughput {}, latency {}, memory {}, deliver {}.",
              lastIntervalThroughput / (float)(timeInterval / 1000),
              avgLatency,
              Runtime.getRuntime().totalMemory(),
