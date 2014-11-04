@@ -38,8 +38,8 @@ public class Benchmark extends TimerTask implements StateMachine {
   int txnSize;
   volatile int deliveredCount = 0;
   volatile long latencyTotal = 0;
-  int deliveredCountForLastTimer = 0;
-  long latencyTotalForLastTimer = 0;
+  volatile int deliveredCountForLastTimer = 0;
+  volatile long latencyTotalForLastTimer = 0;
   int membersCount = 0;
   int stateMemory = 0;
   int timeInterval = 0;
@@ -48,8 +48,6 @@ public class Benchmark extends TimerTask implements StateMachine {
   CountDownLatch condBroadcasting = new CountDownLatch(1);
   State currentState = null;
   ConcurrentHashMap<Integer, String> state = new ConcurrentHashMap<>();
-  // 0 ~ 1000 ms. Each elements represents the interval of 10 ms.
-  int[] latencyDistribution = new int[100];
   boolean multipleFsync;
 
   enum State {
@@ -79,8 +77,6 @@ public class Benchmark extends TimerTask implements StateMachine {
       prop.setProperty("timeout_ms", "5000");
       prop.setProperty("min_sync_timeout_ms", "50000");
       prop.setProperty("snapshot_threshold_bytes", snapshot);
-      prop.setProperty("max_batch_size",
-                       System.getProperty("maxBatchSize", "1"));
       zab = new Zab(this, prop, joinPeer);
       this.serverId = zab.getServerId();
     } catch (Exception ex) {
@@ -124,6 +120,7 @@ public class Benchmark extends TimerTask implements StateMachine {
 
   @Override
   public void deliver(Zxid zxid, ByteBuffer stateUpdate, String clientId) {
+    int idx = 0;
     try {
       this.deliveredCount++;
       FakeTxn txn = FakeTxn.fromByteBuffer(stateUpdate);
@@ -133,14 +130,10 @@ public class Benchmark extends TimerTask implements StateMachine {
       }
       if (clientId != null && clientId.equals(this.serverId)) {
         long latency = (System.nanoTime() - txn.timestamp) / 1000000;
-        int idx = (int)latency / 10;
-        if (serverId.equals(clientId)) {
-          this.latencyDistribution[idx] = latencyDistribution[idx]+1;
-        }
         this.latencyTotal += latency;
       }
     } catch (Exception ex) {
-      LOG.debug("exception");
+      LOG.warn("exception {}", idx);
     }
   }
 
@@ -251,14 +244,7 @@ public class Benchmark extends TimerTask implements StateMachine {
     LOG.info("Duration : {} s", duration);
     LOG.info("Throughput : {} txns/s", this.txnCount / duration);
     LOG.info("Latency : {} ms/txn", this.latencyTotal / this.txnCount);
-    printLatencyDistribution();
     this.zab.shutdown();
-  }
-
-  void printLatencyDistribution() {
-    for (int i = 0; i < this.latencyDistribution.length; ++i) {
-      LOG.info("Latency {} ms : {}", i * 10, this.latencyDistribution[i]);
-    }
   }
 
   void initState() {
@@ -280,9 +266,10 @@ public class Benchmark extends TimerTask implements StateMachine {
     latencyTotalForLastTimer = latencyTotal;
     long avgLatency = (lastIntervalThroughput == 0)? 0 :
       lastIntervalLatency / lastIntervalThroughput;
-    LOG.info("Timer: throughput {},  latency {}, deliver {}.",
+    LOG.info("Timer: throughput {},  latency {}, memory {}, deliver {}.",
              lastIntervalThroughput / (float)(timeInterval / 1000),
              avgLatency,
+             Runtime.getRuntime().totalMemory(),
              deliveredCount);
   }
 
