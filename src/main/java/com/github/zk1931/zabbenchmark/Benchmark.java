@@ -30,9 +30,6 @@ import org.slf4j.LoggerFactory;
  * Benchmark.
  */
 public class Benchmark extends TimerTask implements StateMachine {
-
-  Txn txn1 = null;
-
   private static final Logger LOG = LoggerFactory.getLogger(Benchmark.class);
   final Zab zab;
   String serverId;
@@ -80,9 +77,10 @@ public class Benchmark extends TimerTask implements StateMachine {
         prop.setProperty("logdir", logDir);
       }
       prop.setProperty("timeout_ms", "5000");
-      //prop.setProperty("sync_timeout_ms", "30000");
       prop.setProperty("min_sync_timeout_ms", "50000");
       prop.setProperty("snapshot_threshold_bytes", snapshot);
+      prop.setProperty("max_batch_size",
+                       System.getProperty("maxBatchSize", "1"));
       zab = new Zab(this, prop, joinPeer);
       this.serverId = zab.getServerId();
     } catch (Exception ex) {
@@ -130,17 +128,17 @@ public class Benchmark extends TimerTask implements StateMachine {
       this.deliveredCount++;
       FakeTxn txn = FakeTxn.fromByteBuffer(stateUpdate);
       // state.put(deliveredCount % state.size(), new String(txn.body));
-      long latency = (System.nanoTime() - txn.timestamp) / 1000000;
-      this.latencyTotal += latency;
       if (this.deliveredCount == this.txnCount) {
         this.condFinish.countDown();
       }
-      /*
-      int idx = (int)latency / 10;
-      if (serverId.equals(clientId)) {
-        this.latencyDistribution[idx] = latencyDistribution[idx]+1;
+      if (clientId != null && clientId.equals(this.serverId)) {
+        long latency = (System.nanoTime() - txn.timestamp) / 1000000;
+        int idx = (int)latency / 10;
+        if (serverId.equals(clientId)) {
+          this.latencyDistribution[idx] = latencyDistribution[idx]+1;
+        }
+        this.latencyTotal += latency;
       }
-      */
     } catch (Exception ex) {
       LOG.debug("exception");
     }
@@ -223,7 +221,7 @@ public class Benchmark extends TimerTask implements StateMachine {
     long startNs;
     Timer timer = new Timer();
 
-    if (this.currentState == State.FOLLOWING) {
+    if (this.currentState == State.LEADING) {
       LOG.info("It's leading.");
       LOG.info("Waiting for member size changes to {}", this.membersCount);
       this.condMembers.await();
@@ -253,7 +251,14 @@ public class Benchmark extends TimerTask implements StateMachine {
     LOG.info("Duration : {} s", duration);
     LOG.info("Throughput : {} txns/s", this.txnCount / duration);
     LOG.info("Latency : {} ms/txn", this.latencyTotal / this.txnCount);
+    printLatencyDistribution();
     this.zab.shutdown();
+  }
+
+  void printLatencyDistribution() {
+    for (int i = 0; i < this.latencyDistribution.length; ++i) {
+      LOG.info("Latency {} ms : {}", i * 10, this.latencyDistribution[i]);
+    }
   }
 
   void initState() {
